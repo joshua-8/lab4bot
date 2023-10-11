@@ -6,7 +6,38 @@
 #include <JMotor.h> //https://github.com/joshua-8/JMotor
 
 const int dacUnitsPerVolt = 380; // increasing this number decreases the calculated voltage
+const float wheelCir = PI * 0.1; // wheel diam
+const int encoderTicksPerRev = 2340;
+
+JTwoDTransform robotToWheelScalar = { 1, 1, 1 }; // adjust until it converts robot speed in your chosen units to wheel units (increasing numbers makes robot faster)
+
 JVoltageCompMeasure<10> voltageComp = JVoltageCompMeasure<10>(batMonitorPin, dacUnitsPerVolt);
+JMotorDriverEsp32L293 flMotorDriver = JMotorDriverEsp32L293(portA, true, false, false, 8000, 12);
+JMotorDriverEsp32L293 frMotorDriver = JMotorDriverEsp32L293(portB, true, false, false, 8000, 12);
+JMotorDriverEsp32L293 blMotorDriver = JMotorDriverEsp32L293(portC, true, false, false, 8000, 12);
+JMotorDriverEsp32L293 brMotorDriver = JMotorDriverEsp32L293(portD, true, false, false, 8000, 12);
+JEncoderSingleAttachInterrupt flEncoder = JEncoderSingleAttachInterrupt(inport1, wheelCir / encoderTicksPerRev, false, 200000, 25, FALLING);
+JEncoderSingleAttachInterrupt frEncoder = JEncoderSingleAttachInterrupt(inport2, wheelCir / encoderTicksPerRev, false, 200000, 25, FALLING);
+JEncoderSingleAttachInterrupt blEncoder = JEncoderSingleAttachInterrupt(inport3, wheelCir / encoderTicksPerRev, false, 200000, 25, FALLING);
+JEncoderSingleAttachInterrupt brEncoder = JEncoderSingleAttachInterrupt(port1Pin, wheelCir / encoderTicksPerRev, false, 200000, 25, FALLING);
+JMotorCompStandardConfig flMotorConfig = JMotorCompStandardConfig(3, .55, 5, 1.60, 6.75, 2.75, 100);
+JMotorCompStandardConfig frMotorConfig = JMotorCompStandardConfig(3, .55, 5, 1.60, 6.75, 2.75, 100);
+JMotorCompStandardConfig blMotorConfig = JMotorCompStandardConfig(3, .55, 5, 1.60, 6.75, 2.75, 100);
+JMotorCompStandardConfig brMotorConfig = JMotorCompStandardConfig(3, .55, 5, 1.60, 6.75, 2.75, 100);
+JMotorCompStandard flMotorCompensator = JMotorCompStandard(voltageComp, flMotorConfig, 1.0 / (wheelCir)); // factor converts from ground speed to rotations per second
+JMotorCompStandard frMotorCompensator = JMotorCompStandard(voltageComp, frMotorConfig, 1.0 / (wheelCir));
+JMotorCompStandard blMotorCompensator = JMotorCompStandard(voltageComp, blMotorConfig, 1.0 / (wheelCir));
+JMotorCompStandard brMotorCompensator = JMotorCompStandard(voltageComp, brMotorConfig, 1.0 / (wheelCir));
+JControlLoopBasic flCtrlLoop = JControlLoopBasic(7);
+JControlLoopBasic frCtrlLoop = JControlLoopBasic(7);
+JControlLoopBasic blCtrlLoop = JControlLoopBasic(7);
+JControlLoopBasic brCtrlLoop = JControlLoopBasic(7);
+JMotorControllerClosed flMotor = JMotorControllerClosed(flMotorDriver, flMotorCompensator, flEncoder, flCtrlLoop);
+JMotorControllerClosed frMotor = JMotorControllerClosed(frMotorDriver, frMotorCompensator, frEncoder, frCtrlLoop);
+JMotorControllerClosed blMotor = JMotorControllerClosed(blMotorDriver, blMotorCompensator, blEncoder, blCtrlLoop);
+JMotorControllerClosed brMotor = JMotorControllerClosed(brMotorDriver, brMotorCompensator, brEncoder, brCtrlLoop);
+JDrivetrainMecanum drivetrain = JDrivetrainMecanum(frMotor, flMotor, blMotor, brMotor, robotToWheelScalar); // drivetrain converts from robot speed to motor speeds
+JDrivetrainControllerBasic drivetrainController = JDrivetrainControllerBasic(drivetrain, { 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1 });
 
 void Enabled()
 {
