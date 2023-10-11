@@ -1,4 +1,4 @@
-//   This program controls Benjamin's RCM power up mini robot "Swervy"
+//   This program controls an x drive robot
 //   https://github.com/rcmgames/RCMv2
 //   for information about the electronics, see the link at the top of this page: https://github.com/RCMgames
 #include "rcm.h" //defines pins
@@ -44,6 +44,8 @@ void Enabled()
 {
     // code to run while enabled, put your main code here
     drivetrainController.setVel(driverInput);
+
+    // drivetrainController.setDistDelta({ 0.2, 0, 0 });
 }
 
 void Enable()
@@ -56,6 +58,7 @@ void Disable()
 {
     // shut off all outputs
     drivetrainController.disable();
+    driverInput = { 0, 0, 0 };
 }
 
 jENCODER_MAKE_ISR_MACRO(frEncoder);
@@ -75,20 +78,21 @@ void Always()
 {
     // always runs if void loop is running, top level JMotor run() functions should be put here
     drivetrainController.run();
-    delay(1);
+    delay(10);
 }
 
 void configWifi()
 {
-    // EWD::mode = EWD::Mode::connectToNetwork;
-    // EWD::routerName = "router";
-    // EWD::routerPassword = "password";
-    // EWD::routerPort = 25210;
+    EWD::mode = EWD::Mode::connectToNetwork;
+    EWD::routerName = "router";
+    EWD::routerPassword = "password";
+    EWD::routerPort = 25210;
+    EWD::signalLossTimeout = 350;
 
-    EWD::mode = EWD::Mode::createAP;
-    EWD::APName = "lab4bot";
-    EWD::APPassword = "Borton";
-    EWD::APPort = 25210;
+    // EWD::mode = EWD::Mode::createAP;
+    // EWD::APName = "lab4bot";
+    // EWD::APPassword = "Borton";
+    // EWD::APPort = 25210;
 }
 
 void WifiDataToParse()
