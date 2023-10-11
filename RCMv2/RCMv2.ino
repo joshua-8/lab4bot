@@ -86,7 +86,7 @@ void configWifi()
     // EWD::routerPort = 25210;
 
     EWD::mode = EWD::Mode::createAP;
-    EWD::APName = "vroomymcvroomface";
+    EWD::APName = "lab4bot";
     EWD::APPassword = "Borton";
     EWD::APPort = 25210;
 }
