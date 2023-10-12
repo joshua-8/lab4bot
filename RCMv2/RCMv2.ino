@@ -8,9 +8,9 @@
 
 const int dacUnitsPerVolt = 413; // increasing this number decreases the calculated voltage
 const int encoderTicksPerRev = 625;
-float wheelCir = (0.1 * PI);
+float wheelCir = (0.1 / 2 * PI);
 JTwoDTransform robotToWheelScalar = { 1 / wheelCir, 1 / wheelCir, 1.35 / ((float)TWO_PI) / wheelCir }; // adjust until it converts robot speed in your chosen units to wheel units (increasing numbers makes robot faster)
-//TODO: calibrate robot to wheel scalar
+// TODO: calibrate robot to wheel scalar
 JVoltageCompMeasure<10> voltageComp = JVoltageCompMeasure<10>(batMonitorPin, dacUnitsPerVolt);
 JMotorDriverEsp32L293 flMotorDriver = JMotorDriverEsp32L293(portA, true, false, false, 8000, 12);
 JMotorDriverEsp32L293 frMotorDriver = JMotorDriverEsp32L293(portB, true, false, false, 8000, 12);
