@@ -9,7 +9,7 @@
 const int dacUnitsPerVolt = 413; // increasing this number decreases the calculated voltage
 const int encoderTicksPerRev = 625;
 float wheelCir = (0.1 / 2 * PI);
-JTwoDTransform robotToWheelScalar = { 1 / wheelCir, 1 / wheelCir, 1.35 / ((float)TWO_PI) / wheelCir }; // adjust until it converts robot speed in your chosen units to wheel units (increasing numbers makes robot faster)
+JTwoDTransform robotToWheelScalar = { 1 / wheelCir, 1 / wheelCir, ((float)1.35) / ((float)TWO_PI) / wheelCir }; // adjust until it converts robot speed in your chosen units to wheel units (increasing numbers makes robot faster)
 // TODO: calibrate robot to wheel scalar
 JVoltageCompMeasure<10> voltageComp = JVoltageCompMeasure<10>(batMonitorPin, dacUnitsPerVolt);
 JMotorDriverEsp32L293 flMotorDriver = JMotorDriverEsp32L293(portA, true, false, false, 8000, 12);
@@ -33,10 +33,23 @@ JDrivetrainMecanum drivetrain = JDrivetrainMecanum(frMotor, flMotor, blMotor, br
 JDrivetrainFieldOriented drivetrainFO = JDrivetrainFieldOriented(drivetrain);
 JDrivetrainControllerBasic drivetrainController = JDrivetrainControllerBasic(drivetrainFO, { INFINITY, INFINITY, INFINITY }, { 5, 5, 5 }, { 0.05, 0.05, 0.5 }, false);
 
-JTwoDTransform driverInput = JTwoDTransform();
+byte mode = 0;
 float heading = 0;
 float headingOffset = 0;
 
+JTwoDTransform driverInput = JTwoDTransform();
+
+float driveTowardsHeading = 0;
+boolean newRotation = false;
+float brightest = 0;
+float brightestHeading = 0;
+float brightness = 0;
+
+float driveHeading = 0;
+boolean turnL = false;
+boolean turnR = false;
+
+// bno08x code modified from example from Adafruit's library
 struct euler_t {
     float yaw;
     float pitch;
@@ -44,34 +57,44 @@ struct euler_t {
 } ypr;
 Adafruit_BNO08x bno08x(-1);
 sh2_SensorValue_t sensorValue;
-void quaternionToEuler(float qr, float qi, float qj, float qk, euler_t* ypr)
-{
-    float sqr = sq(qr);
-    float sqi = sq(qi);
-    float sqj = sq(qj);
-    float sqk = sq(qk);
-    ypr->yaw = atan2(2.0 * (qi * qj + qk * qr), (sqi - sqj - sqk + sqr));
-    ypr->pitch = asin(-2.0 * (qi * qk - qj * qr) / (sqi + sqj + sqk + sqr));
-    ypr->roll = atan2(2.0 * (qj * qk + qi * qr), (-sqi - sqj + sqk + sqr));
-}
-void quaternionToEulerRV(sh2_RotationVectorWAcc_t* rotational_vector, euler_t* ypr)
-{
-    quaternionToEuler(rotational_vector->real, rotational_vector->i, rotational_vector->j, rotational_vector->k, ypr);
-}
-void setReports()
-{
-    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_RV, 5000)) {
-        Serial.println("Could not enable stabilized remote vector, STOPPING PROGRAM");
-        while (1) {
-            delay(10);
-        }
-    }
-}
 
 void Enabled()
 {
     // code to run while enabled, put your main code here
-    drivetrainController.moveVel(driverInput);
+    if (mode == 1) { // drive
+        drivetrainController.moveVel(driverInput);
+    } else if (mode == 2) { // go towards light
+        brightness = analogRead(port2Pin) / 4096.0;
+        if (ypr.yaw > 0) {
+            newRotation = true;
+        } else {
+            if (newRotation == true) {
+                driveTowardsHeading = brightestHeading;
+                brightest = 0;
+                newRotation = false;
+            }
+            if (brightness > brightest) {
+                brightestHeading = heading;
+                brightest = brightness;
+            }
+        }
+        JTwoDTransform drive = { 0, 0, 1 };
+        drive.x = 0.25 * cos(driveTowardsHeading);
+        drive.y = 0.25 * sin(driveTowardsHeading);
+        drivetrainController.moveVel(drive);
+    } else if (mode == 3) { // go towards heading
+        if (turnL)
+            driveHeading += 0.02;
+        if (turnR)
+            driveHeading -= 0.02;
+
+        JTwoDTransform drive = { 0, 0, 0 };
+        drive.x = 0.25 * cos(driveHeading);
+        drive.y = 0.25 * sin(driveHeading);
+        drivetrainController.moveVel(drive);
+    } else {
+        drivetrainController.moveVel({ 0, 0, 0 });
+    }
 }
 
 void Enable()
@@ -143,9 +166,16 @@ void WifiDataToParse()
 {
     enabled = EWD::recvBl();
     // add data to read here: (EWD::recvBl, EWD::recvBy, EWD::recvIn, EWD::recvFl)(boolean, byte, int, float)
-    driverInput.x = EWD::recvFl();
-    driverInput.y = EWD::recvFl();
-    driverInput.theta = EWD::recvFl();
+    mode = EWD::recvBy();
+    if (mode == 1) {
+        driverInput.x = EWD::recvFl();
+        driverInput.y = EWD::recvFl();
+        driverInput.theta = EWD::recvFl();
+    }
+    if (mode == 3) {
+        turnL = EWD::recvBl();
+        turnR = EWD::recvBl();
+    }
 }
 void WifiDataToSend()
 {
@@ -155,6 +185,31 @@ void WifiDataToSend()
     EWD::sendFl(drivetrainController.getVel().y);
     EWD::sendFl(drivetrainController.getVel().theta);
     EWD::sendFl(drivetrainFO.getHeading());
+    EWD::sendFl(driveTowardsHeading / (float)TWO_PI);
+}
+
+void quaternionToEuler(float qr, float qi, float qj, float qk, euler_t* ypr)
+{
+    float sqr = sq(qr);
+    float sqi = sq(qi);
+    float sqj = sq(qj);
+    float sqk = sq(qk);
+    ypr->yaw = atan2(2.0 * (qi * qj + qk * qr), (sqi - sqj - sqk + sqr));
+    ypr->pitch = asin(-2.0 * (qi * qk - qj * qr) / (sqi + sqj + sqk + sqr));
+    ypr->roll = atan2(2.0 * (qj * qk + qi * qr), (-sqi - sqj + sqk + sqr));
+}
+void quaternionToEulerRV(sh2_RotationVectorWAcc_t* rotational_vector, euler_t* ypr)
+{
+    quaternionToEuler(rotational_vector->real, rotational_vector->i, rotational_vector->j, rotational_vector->k, ypr);
+}
+void setReports()
+{
+    if (!bno08x.enableReport(SH2_ARVR_STABILIZED_RV, 5000)) {
+        Serial.println("Could not enable stabilized remote vector, STOPPING PROGRAM");
+        while (1) {
+            delay(10);
+        }
+    }
 }
 
 ////////////////////////////// you don't need to edit below this line ////////////////////
