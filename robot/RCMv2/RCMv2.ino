@@ -19,19 +19,19 @@ JMotorDriverEsp32L293 brMotorDriver = JMotorDriverEsp32L293(portD, true, false, 
 JEncoderSingleAttachInterrupt flEncoder = JEncoderSingleAttachInterrupt(inport1, 1.0 / encoderTicksPerRev, false, 20000, 200, FALLING);
 JEncoderSingleAttachInterrupt frEncoder = JEncoderSingleAttachInterrupt(inport2, 1.0 / encoderTicksPerRev, false, 20000, 200, FALLING);
 JEncoderSingleAttachInterrupt blEncoder = JEncoderSingleAttachInterrupt(inport3, 1.0 / encoderTicksPerRev, false, 20000, 200, FALLING);
-JEncoderSingleAttachInterrupt brEncoder = JEncoderSingleAttachInterrupt(port1Pin, 1.0 / encoderTicksPerRev, false, 20000, 200, FALLING);
+JEncoderSingleAttachInterrupt brEncoder = JEncoderSingleAttachInterrupt(port3Pin, 1.0 / encoderTicksPerRev, false, 20000, 200, FALLING);
 JMotorCompBasic motorCompensator = JMotorCompBasic(voltageComp, 1.7, 0.5); // volts per rps, min rps
 JControlLoopBasic flCtrlLoop = JControlLoopBasic(10, 400);
 JControlLoopBasic frCtrlLoop = JControlLoopBasic(10, 400);
 JControlLoopBasic blCtrlLoop = JControlLoopBasic(10, 400);
 JControlLoopBasic brCtrlLoop = JControlLoopBasic(10, 400);
-JMotorControllerClosed flMotor = JMotorControllerClosed(flMotorDriver, motorCompensator, flEncoder, flCtrlLoop, INFINITY, INFINITY, 0.1);
-JMotorControllerClosed frMotor = JMotorControllerClosed(frMotorDriver, motorCompensator, frEncoder, frCtrlLoop, INFINITY, INFINITY, 0.1);
-JMotorControllerClosed blMotor = JMotorControllerClosed(blMotorDriver, motorCompensator, blEncoder, blCtrlLoop, INFINITY, INFINITY, 0.1);
-JMotorControllerClosed brMotor = JMotorControllerClosed(brMotorDriver, motorCompensator, brEncoder, brCtrlLoop, INFINITY, INFINITY, 0.1);
+JMotorControllerClosed flMotor = JMotorControllerClosed(flMotorDriver, motorCompensator, flEncoder, flCtrlLoop, INFINITY, INFINITY, 0.01);
+JMotorControllerClosed frMotor = JMotorControllerClosed(frMotorDriver, motorCompensator, frEncoder, frCtrlLoop, INFINITY, INFINITY, 0.01);
+JMotorControllerClosed blMotor = JMotorControllerClosed(blMotorDriver, motorCompensator, blEncoder, blCtrlLoop, INFINITY, INFINITY, 0.01);
+JMotorControllerClosed brMotor = JMotorControllerClosed(brMotorDriver, motorCompensator, brEncoder, brCtrlLoop, INFINITY, INFINITY, 0.01);
 JDrivetrainMecanum drivetrain = JDrivetrainMecanum(frMotor, flMotor, blMotor, brMotor, robotToWheelScalar); // drivetrain converts from robot speed to motor speeds
 JDrivetrainFieldOriented drivetrainFO = JDrivetrainFieldOriented(drivetrain);
-JDrivetrainControllerBasic drivetrainController = JDrivetrainControllerBasic(drivetrainFO, { INFINITY, INFINITY, INFINITY }, { 5, 5, 5 }, { 0.05, 0.05, 0.5 }, false);
+JDrivetrainControllerBasic drivetrainController = JDrivetrainControllerBasic(drivetrainFO, { INFINITY, INFINITY, INFINITY }, { 5, 5, 5 }, { 0.15, 0.15, 0.25 }, false);
 
 byte mode = 0;
 float heading = 0;
@@ -39,15 +39,15 @@ float headingOffset = 0;
 
 JTwoDTransform driverInput = JTwoDTransform();
 
-float driveTowardsHeading = 0;
-boolean newRotation = false;
-float brightest = 0;
-float brightestHeading = 0;
-float brightness = 0;
+float brightDiff = 0;
+
+boolean dance = false;
 
 float driveHeading = 0;
 boolean turnL = false;
 boolean turnR = false;
+
+int danceState = 0;
 
 // bno08x code modified from example from Adafruit's library
 struct euler_t {
@@ -60,27 +60,20 @@ sh2_SensorValue_t sensorValue;
 
 void Enabled()
 {
+    if (mode != 4) {
+        danceState = 0;
+    }
     // code to run while enabled, put your main code here
     if (mode == 1) { // drive
         drivetrainController.moveVel(driverInput);
     } else if (mode == 2) { // go towards light
-        brightness = analogRead(port2Pin) / 4096.0;
-        if (ypr.yaw > 0) {
-            newRotation = true;
-        } else {
-            if (newRotation == true) {
-                driveTowardsHeading = brightestHeading;
-                brightest = 0;
-                newRotation = false;
-            }
-            if (brightness > brightest) {
-                brightestHeading = heading;
-                brightest = brightness;
-            }
-        }
-        JTwoDTransform drive = { 0, 0, 1 };
-        drive.x = 0.25 * cos(driveTowardsHeading);
-        drive.y = 0.25 * sin(driveTowardsHeading);
+        float brightnessL = analogRead(port2Pin) / 4096.0;
+        float brightnessR = analogRead(port1Pin) / 4096.0;
+        brightDiff = brightnessR - brightnessL;
+
+        JTwoDTransform drive = { 0, 0, constrain(brightDiff * 9, -.7, .7) };
+        drive.x = -0.25 * cos(heading - headingOffset);
+        drive.y = -0.25 * sin(heading - headingOffset); // back to non field oriented
         drivetrainController.moveVel(drive);
     } else if (mode == 3) { // go towards heading
         if (turnL)
@@ -92,6 +85,53 @@ void Enabled()
         drive.x = 0.25 * cos(driveHeading);
         drive.y = 0.25 * sin(driveHeading);
         drivetrainController.moveVel(drive);
+    } else if (mode == 4) {
+        switch (danceState) {
+        case 0:
+            if (dance) {
+                headingOffset = heading;
+                drivetrainController.resetDist();
+                drivetrainController.moveDistInc({ 0.4, 0, 0 });
+                danceState = 1;
+            }
+            break;
+        case 1:
+            if (drivetrainController.isDrivetrainAtTarget()) {
+                drivetrainController.moveDistInc({ 0, -.4, 0 });
+                danceState = 2;
+            }
+            break;
+        case 2:
+            if (drivetrainController.isDrivetrainAtTarget()) {
+                drivetrainController.moveDistInc({ 0, 0, PI / 2 });
+                danceState = 3;
+            }
+            break;
+        case 3:
+            if (drivetrainController.isDrivetrainAtTarget()) {
+                drivetrainController.moveDistInc({ -.4, 0, 0 });
+                danceState = 4;
+            }
+            break;
+        case 4:
+            if (drivetrainController.isDrivetrainAtTarget()) {
+                drivetrainController.moveDistInc({ 0, 0, -PI / 2 });
+                danceState = 5;
+            }
+            break;
+        case 5:
+            if (drivetrainController.isDrivetrainAtTarget()) {
+                drivetrainController.moveDistInc({ 0, 0.35, 0 });
+                danceState = 6;
+            }
+            break;
+        case 6:
+            if (drivetrainController.isDrivetrainAtTarget()) {
+                danceState = 0;
+            }
+            break;
+            brightDiff = danceState;
+        }
     } else {
         drivetrainController.moveVel({ 0, 0, 0 });
     }
@@ -100,7 +140,8 @@ void Enabled()
 void Enable()
 {
     // turn on outputs
-    drivetrainFO.resetDist();
+    drivetrainController.resetDist();
+    drivetrainController.moveDist({ 0, 0, 0 });
     headingOffset = heading;
     drivetrainController.enable();
     driverInput = { 0, 0, 0 };
@@ -143,6 +184,12 @@ void PowerOn()
 
 void Always()
 {
+    if (!enabled) {
+        float brightnessL = analogRead(port2Pin) / 4096.0;
+        float brightnessR = analogRead(port1Pin) / 4096.0;
+        brightDiff = brightnessL - brightnessR;
+    }
+
     // always runs if void loop is running, top level JMotor run() functions should be put here
     if (bno08x.getSensorEvent(&sensorValue)) {
         quaternionToEulerRV(&sensorValue.un.arvrStabilizedRV, &ypr);
@@ -176,16 +223,19 @@ void WifiDataToParse()
         turnL = EWD::recvBl();
         turnR = EWD::recvBl();
     }
+    if (mode == 4) {
+        dance = EWD::recvBl();
+    }
 }
 void WifiDataToSend()
 {
     EWD::sendFl(voltageComp.getSupplyVoltage());
     // add data to send here: (EWD::sendBl(), EWD::sendBy(), EWD::sendIn(), EWD::sendFl())(boolean, byte, int, float)
-    EWD::sendFl(drivetrainController.getVel().x);
-    EWD::sendFl(drivetrainController.getVel().y);
-    EWD::sendFl(drivetrainController.getVel().theta);
+    EWD::sendFl(drivetrainController.getDist().x);
+    EWD::sendFl(drivetrainController.getDist().y);
+    EWD::sendFl(drivetrainController.getDist().theta);
     EWD::sendFl(drivetrainFO.getHeading());
-    EWD::sendFl(driveTowardsHeading / (float)TWO_PI);
+    EWD::sendFl(brightDiff);
 }
 
 void quaternionToEuler(float qr, float qi, float qj, float qk, euler_t* ypr)
