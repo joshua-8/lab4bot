@@ -16,14 +16,30 @@ void setup()
 {
     Serial.begin(115200);
     pinMode(ONBOARD_LED, OUTPUT);
+    Serial.println();
 
     EWD::mode = EWD::Mode::createAP;
-    EWD::APName = "lab4bot";
-    EWD::APPassword = "Borton";
+    EWD::APName = "yourAP";
+    EWD::APPassword = "yourPassword";
     EWD::APPort = 25210;
     EWD::signalLossTimeout = 250;
 
-    EWD::setupWifi(WifiDataToParse, WifiDataToSend);
+    // EWD::setupWifi(WifiDataToParse, WifiDataToSend);
+    EWD::sendCallback=WifiDataToSend;
+    EWD::receiveCallback=WifiDataToParse;
+    WiFi.disconnect(true, true);
+    delay(100);
+
+    WiFi.onEvent(EWD::WiFiEvent);
+
+    if (!WiFi.softAP(EWD::APName, EWD::APPassword)) {
+        log_e("Soft AP creation failed.");
+        while (1)
+            ;
+    }
+    IPAddress myIP = WiFi.softAPIP();
+    Serial.print("AP IP address: ");
+    Serial.println(myIP);
 }
 
 void loop()
