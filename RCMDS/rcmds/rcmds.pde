@@ -20,6 +20,13 @@ byte mode=0;
 
 float DTH=0;
 
+boolean left=false;
+boolean right=false;
+
+import processing.serial.*;
+Serial myPort;
+
+
 void setup() {
   size(1400, 800);
   rcmdsSetup();
@@ -27,6 +34,10 @@ void setup() {
   setupGamepad("Controller (XBOX 360 For Windows)");
   movement=new Joystick(200, 300, 200, -1, 1, color(100), color(200), "X Axis", "Y Axis", 'i', 'j', 'k', 'l', 0, 0);
   turning=new Slider(200, 600, 200, 50, -1, 1, color(100), color(200), "X Rotation", 'd', 'a', 1, 0, true, true);
+
+  printArray(Serial.list());
+  String portName = Serial.list()[1];
+  myPort = new Serial(this, portName, 115200);
 }
 void draw() {
   background(0);
@@ -49,9 +60,9 @@ void draw() {
     mode=4;
   }
 
-  String[] msg={"battery voltage", "ping", "forwards", "left", "clockwise", "v f", "v l", "v t", "heading", "mode", "DiffHeading"};
-  String[] data={str(batVolt), str(wifiPing), str(moveVal.y), str(moveVal.x), str(turnVal), str(velx), str(vely), str(velt), str(heading), str(mode), str(DTH)};
-  dispTelem(msg, data, width/2, height*2/3, width/4, height*2/3, 12);
+  String[] msg={"battery voltage", "ping", "forwards", "left", "clockwise", "v f", "v l", "v t", "heading", "mode", "DiffHeading", "l", "r"};
+  String[] data={str(batVolt), str(wifiPing), str(moveVal.y), str(moveVal.x), str(turnVal), str(velx), str(vely), str(velt), str(heading), str(mode), str(DTH), str(left), str(right)};
+  dispTelem(msg, data, width/2, height*2/3, width/4, height*2/3, 10);
 
   sendWifiData(true);
   endOfDraw();
@@ -75,10 +86,38 @@ void WifiDataToSend() {
     sendFl(turnVal);
   }
   if (mode==3) {
-    sendBl(moveVal.x>0.2);
-    sendBl(moveVal.x<-.2);
+    sendBl(moveVal.x>0.2||left);
+    sendBl(moveVal.x<-.2||right);
   }
   if (mode==4) {
     sendBl(abs(moveVal.x)>0.2||abs(moveVal.y)>0.2);
+  }
+}
+
+void serialEvent(Serial myPort) {
+  int inByte = myPort.read();
+  println(inByte);
+  if (inByte == 'j') {
+    left=true;
+  }
+  if (inByte == 'l') {
+    right=true;
+  }
+  if (inByte == 'k') {
+    left=false;
+    right=false;
+  }
+
+  if (inByte == '1') {
+    mode=1;
+  }
+  if (inByte == '2') {
+    mode=2;
+  }
+  if (inByte == '3') {
+    mode=3;
+  }
+  if (inByte == '4') {
+    mode=4;
   }
 }
